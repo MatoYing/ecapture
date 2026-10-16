@@ -41,6 +41,17 @@ import (
 	"github.com/gojue/ecapture/v2/pkg/util/kernel"
 )
 
+// File offsets for the local Mbed TLS symbols in the stripped
+// /system/lib64/libcysec.syan.so on patacvxmmax (618040 bytes).
+// The executable virtual address is 0x1000 above the file offset, so the nm
+// address must not be used here. cysec_tls_client_read and
+// cysec_tls_client_write tail-call these functions and do not return, so text
+// mode must not attach to those exports.
+const (
+	mbedtlsSSLReadFileOffset  uint64 = 0x76db0
+	mbedtlsSSLWriteFileOffset uint64 = 0x770fc
+)
+
 // Probe implements the OpenSSL TLS tracing probe.
 // Supports Text mode, Keylog mode, and Pcap mode.
 type Probe struct {
@@ -248,30 +259,35 @@ func (p *Probe) setupManagerText() error {
 	p.mapNameToDecoder["tls_events"] = &tlsEventDecoder{probe: p}
 	p.mapNameToDecoder["connect_events"] = &connectDecoder{probe: p}
 
-	// TEXT mode: Only SSL_read/SSL_write probes for data capture
+	// TEXT mode reads plaintext from Mbed TLS. UAddress is the file offset and
+	// takes priority over symbol lookup, which cannot see these local symbols.
 	probes = []*manager.Probe{
 		{
 			Section:          "uprobe/SSL_write",
 			EbpfFuncName:     "probe_entry_SSL_write",
-			AttachToFuncName: "SSL_write",
+			AttachToFuncName: "mbedtls_ssl_write",
+			UAddress:         mbedtlsSSLWriteFileOffset,
 			BinaryPath:       opensslPath,
 		},
 		{
 			Section:          "uretprobe/SSL_write",
 			EbpfFuncName:     "probe_ret_SSL_write",
-			AttachToFuncName: "SSL_write",
+			AttachToFuncName: "mbedtls_ssl_write",
+			UAddress:         mbedtlsSSLWriteFileOffset,
 			BinaryPath:       opensslPath,
 		},
 		{
 			Section:          "uprobe/SSL_read",
 			EbpfFuncName:     "probe_entry_SSL_read",
-			AttachToFuncName: "SSL_read",
+			AttachToFuncName: "mbedtls_ssl_read",
+			UAddress:         mbedtlsSSLReadFileOffset,
 			BinaryPath:       opensslPath,
 		},
 		{
 			Section:          "uretprobe/SSL_read",
 			EbpfFuncName:     "probe_ret_SSL_read",
-			AttachToFuncName: "SSL_read",
+			AttachToFuncName: "mbedtls_ssl_read",
+			UAddress:         mbedtlsSSLReadFileOffset,
 			BinaryPath:       opensslPath,
 		},
 
@@ -320,38 +336,9 @@ func (p *Probe) setupManagerText() error {
 		},
 
 		// --------------------------------------------------
-
-		// openssl masterkey
-		/*{
-			Section:          "uprobe/SSL_write_key",
-			EbpfFuncName:     "probe_ssl_master_key",
-			AttachToFuncName: m.masterHookFuncs,
-			BinaryPath:       binaryPath,
-			UID:              "uprobe_ssl_master_key",
-		},*/
-
-		// ------------------- SSL_set_fd hook-------------------------------------
-		{
-			Section:          "uprobe/SSL_set_fd",
-			EbpfFuncName:     "probe_SSL_set_fd",
-			AttachToFuncName: "SSL_set_fd",
-			BinaryPath:       opensslPath,
-			UID:              "uprobe_ssl_set_fd",
-		},
-		{
-			Section:          "uprobe/SSL_set_rfd",
-			EbpfFuncName:     "probe_SSL_set_fd",
-			AttachToFuncName: "SSL_set_rfd",
-			BinaryPath:       opensslPath,
-			UID:              "uprobe_ssl_set_rfd",
-		},
-		{
-			Section:          "uprobe/SSL_set_wfd",
-			EbpfFuncName:     "probe_SSL_set_fd",
-			AttachToFuncName: "SSL_set_wfd",
-			BinaryPath:       opensslPath,
-			UID:              "uprobe_ssl_set_wfd",
-		},
+		// libcysec.syan.so has no SSL_set_fd/SSL_set_rfd/SSL_set_wfd. Attaching
+		// them fails the whole module, and text mode still keeps the plaintext
+		// buffer when the OpenSSL BIO walk cannot find an fd.
 	}
 
 	p.bpfManager = &manager.Manager{
@@ -632,6 +619,14 @@ func (p *Probe) setupManager() error {
 		Int("num_probes", len(p.bpfManager.Probes)).
 		Int("num_maps", len(p.bpfManager.Maps)).
 		Msg("Setting up eBPF probes")
+	if p.config.CaptureMode == handlers.ModeText {
+		p.Logger().Info().
+			Str("read", "mbedtls_ssl_read").
+			Uint64("read_file_offset", mbedtlsSSLReadFileOffset).
+			Str("write", "mbedtls_ssl_write").
+			Uint64("write_file_offset", mbedtlsSSLWriteFileOffset).
+			Msg("text mode hooks Mbed TLS by file offset")
+	}
 
 	for _, e := range p.bpfManager.Probes {
 		p.Logger().Debug().Str("probe", e.AttachToFuncName).Msg("Configured eBPF probe")

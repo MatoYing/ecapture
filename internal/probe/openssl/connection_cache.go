@@ -82,6 +82,12 @@ func (c *connectionCache) observe(event *ConnDataEvent) {
 	if previousKey, ok := c.bySock[event.Sock]; ok {
 		c.removeLocked(previousKey, event.Sock)
 	}
+	// removeLocked drops byPID[pid] when that pid's last fd goes away. The
+	// sock can be reused by the same pid on a new fd, so recreate the map
+	// before writing the replacement.
+	if c.byPID[event.Pid] == nil {
+		c.byPID[event.Pid] = make(map[uint32]connectionInfo)
+	}
 	c.nextGeneration++
 	c.byPID[event.Pid][event.Fd] = connectionInfo{
 		tuple:           event.Tuple,
