@@ -267,6 +267,23 @@ func TestConnectionMetadataEnrichesTLSOutput(t *testing.T) {
 	}
 }
 
+func TestConnectionCacheReusesSockOnNewFD(t *testing.T) {
+	var cache connectionCache
+	cache.observe(&ConnDataEvent{connDataEvent: connDataEvent{
+		Pid: 42, Fd: 5, Sock: 100, Family: unix.AF_INET,
+	}, Tuple: "old"})
+	cache.observe(&ConnDataEvent{connDataEvent: connDataEvent{
+		Pid: 42, Fd: 7, Sock: 100, Family: unix.AF_INET,
+	}, Tuple: "new"})
+	if _, ok := cache.lookup(42, 5); ok {
+		t.Fatal("old fd still mapped after sock moved")
+	}
+	current, ok := cache.lookup(42, 7)
+	if !ok || current.tuple != "new" || current.sock != 100 {
+		t.Fatalf("reused sock = %+v, exists=%t", current, ok)
+	}
+}
+
 func TestConnectionCacheDestroyAndReuse(t *testing.T) {
 	var cache connectionCache
 	first := &ConnDataEvent{connDataEvent: connDataEvent{
