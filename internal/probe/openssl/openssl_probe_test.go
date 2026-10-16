@@ -143,3 +143,57 @@ func TestProbe_WithRealOutput(t *testing.T) {
 		t.Error("Output writer not set")
 	}
 }
+
+func TestSetupManagerTextMbedTLSFileOffsets(t *testing.T) {
+	probe, err := NewProbe()
+	if err != nil {
+		t.Fatalf("NewProbe() error = %v", err)
+	}
+	cfg := NewConfig()
+	cfg.OpensslPath = "/system/lib64/libcysec.syan.so"
+	probe.config = cfg
+
+	if err := probe.setupManagerText(); err != nil {
+		t.Fatalf("setupManagerText() error = %v", err)
+	}
+
+	want := map[string]struct {
+		name   string
+		offset uint64
+	}{
+		"uprobe/SSL_read":     {"mbedtls_ssl_read", mbedtlsSSLReadFileOffset},
+		"uretprobe/SSL_read":  {"mbedtls_ssl_read", mbedtlsSSLReadFileOffset},
+		"uprobe/SSL_write":    {"mbedtls_ssl_write", mbedtlsSSLWriteFileOffset},
+		"uretprobe/SSL_write": {"mbedtls_ssl_write", mbedtlsSSLWriteFileOffset},
+	}
+	seen := map[string]int{}
+	var hasConnect bool
+	for _, pr := range probe.bpfManager.Probes {
+		switch pr.AttachToFuncName {
+		case "SSL_read", "SSL_write", "SSL_set_fd", "SSL_set_rfd", "SSL_set_wfd",
+			"cysec_tls_client_read", "cysec_tls_client_write":
+			t.Errorf("unexpected hook %s", pr.AttachToFuncName)
+		case "__sys_connect":
+			hasConnect = true
+		}
+		expect, ok := want[pr.Section]
+		if !ok {
+			continue
+		}
+		seen[pr.Section]++
+		if pr.AttachToFuncName != expect.name || pr.UAddress != expect.offset || pr.BinaryPath != cfg.OpensslPath {
+			t.Errorf("%s hook = %s %#x %s", pr.Section, pr.AttachToFuncName, pr.UAddress, pr.BinaryPath)
+		}
+	}
+	for section := range want {
+		if seen[section] != 1 {
+			t.Errorf("%s attached %d times", section, seen[section])
+		}
+	}
+	if !hasConnect {
+		t.Error("connect kprobe was removed")
+	}
+	if mbedtlsSSLReadFileOffset != 0x72a68 || mbedtlsSSLWriteFileOffset != 0x72db8 {
+		t.Fatalf("file offsets changed: read %#x write %#x", mbedtlsSSLReadFileOffset, mbedtlsSSLWriteFileOffset)
+	}
+}
