@@ -41,15 +41,15 @@ import (
 	"github.com/gojue/ecapture/v2/pkg/util/kernel"
 )
 
-// File offsets for the local Mbed TLS symbols in
-// /system/lib64/libcysec.syan.so (PandaSSL 4.0.20, 2026-10-14).
+// File offsets for the local Mbed TLS symbols in the stripped
+// /system/lib64/libcysec.syan.so on patacvxmmax (618040 bytes).
 // The executable virtual address is 0x1000 above the file offset, so the nm
 // address must not be used here. cysec_tls_client_read and
 // cysec_tls_client_write tail-call these functions and do not return, so text
 // mode must not attach to those exports.
 const (
-	mbedtlsSSLReadFileOffset  uint64 = 0x72a68
-	mbedtlsSSLWriteFileOffset uint64 = 0x72db8
+	mbedtlsSSLReadFileOffset  uint64 = 0x76db0
+	mbedtlsSSLWriteFileOffset uint64 = 0x770fc
 )
 
 // Probe implements the OpenSSL TLS tracing probe.

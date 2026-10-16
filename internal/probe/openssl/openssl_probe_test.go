@@ -193,7 +193,7 @@ func TestSetupManagerTextMbedTLSFileOffsets(t *testing.T) {
 	if !hasConnect {
 		t.Error("connect kprobe was removed")
 	}
-	if mbedtlsSSLReadFileOffset != 0x72a68 || mbedtlsSSLWriteFileOffset != 0x72db8 {
+	if mbedtlsSSLReadFileOffset != 0x76db0 || mbedtlsSSLWriteFileOffset != 0x770fc {
 		t.Fatalf("file offsets changed: read %#x write %#x", mbedtlsSSLReadFileOffset, mbedtlsSSLWriteFileOffset)
 	}
 }
