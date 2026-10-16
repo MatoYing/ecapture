@@ -246,3 +246,32 @@ verification matrix live in `docs/agent/build-test.md`.
 - Event forwarding: `docs/event-forward-api.md`, `pkg/ecaptureq/README.md`
 - Generated/config docs: `protobuf/README.md`, `protobuf/PROTOCOLS.md`, `docs/remote-config-update-api.md`
 - GitHub Copilot PR agent: `.github/agents/pr-agent.agent.md`
+
+## Cursor Cloud specific instructions
+
+The saved Cloud Agent image is Ubuntu 24.04 x86_64. Login shells resolve
+`/usr/local/bin/go` (Go 1.26.0) ahead of Ubuntu's `/usr/bin/go` 1.22 wrapper.
+`llc`, `llvm-strip`, `bpftool`, and `golangci-lint` 2.13.2 are also on
+`/usr/local/bin`. LLVM 18 supplies `clang`.
+
+This kernel has no `linux-headers-$(uname -r)` package. Setup points
+`/lib/modules/$(uname -r)/build` at the Ubuntu generic headers and leaves
+`source` unset, so non-CO-RE compilation uses that build tree. A dangling
+`source` symlink hides `linux/kconfig.h`. CO-RE capture uses
+`/sys/kernel/btf/vmlinux`. `bpftool` is the generic Ubuntu binary; the
+`/usr/sbin/bpftool` wrapper only accepts a package that matches `uname -r`.
+
+Probe load and maintained E2E need root, with `PATH` preserved:
+
+```sh
+make clean && make env && make all
+sudo env PATH="$PATH" E2E_MODULES=tls E2E_MODES=text bash test/e2e/run_e2e.sh
+```
+
+`lib/libpcap` is a submodule. `make` initializes it when `configure` is
+missing. Android and Loong64 cross toolchains are not preinstalled.
+
+`go test -race ./...` passes the TLS, GoTLS, and GnuTLS packages. It fails
+`pkg/util/ebpf` `TestBpfConfig` and `TestIsContainerSched` because this kernel
+does not expose `/proc/1/sched`, and it fails `internal/probe/mysql` because
+`/usr/sbin/mysqld` is not installed.
